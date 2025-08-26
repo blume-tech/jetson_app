@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  unified-jetson-server:
+    build: .
+    container_name: jetson-unified-server
+    restart: unless-stopped
+    privileged: true
+    network_mode: host
+    
+    # Porturile (folosind network_mode: host)
+    # ports:
+    #   - "8080:8080"  # Flask API
+    #   - "8081:8081"  # WebRTC WebSocket
+    
+    # Dispozitive video - adaptează după sistemul tău
+    devices:
+      - "/dev/video0:/dev/video0"
+      - "/dev/video1:/dev/video1"
+      # Adaugă mai multe dacă ai mai multe camere
+      # - "/dev/video2:/dev/video2"
+    
+    # Volume pentru accesul la informațiile sistemului
+    volumes:
+      - "/sys:/sys:ro"              # Sistem info (read-only)
+      - "/proc:/proc:ro"            # Process info (read-only)
+      - "./logs:/app/logs"          # Logs persistente
+      - "./data:/app/data"          # Date exportate
+    
+    # Variabile de mediu
+    environment:
+      - PYTHONUNBUFFERED=1
+      - FLASK_PORT=8080
+      - WEBSOCKET_PORT=8081
+      - VIDEO_DEVICES=/dev/video0,/dev/video1
+      - MAX_HISTORY_SECONDS=600
+      - DEBUG=0
+      
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    # Resource limits pentru Jetson Nano (adaptează după nevoie)
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '3.0'
+        reservations:
+          memory: 512M
+          cpus: '1.0'
+
+# Opțional: Network dedicat (dacă nu folosești host mode)
+# networks:
+#   jetson-network:
+#     driver: bridge
+#     ipam:
+#       config:
+#         - subnet: 172.20.0.0/16
+
+# Volume pentru persistența datelor
+volumes:
+  jetson-logs:
+    driver: local
+  jetson-data:
+    driver: local

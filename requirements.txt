@@ -1,0 +1,26 @@
+# Requirements pentru Unified Jetson Server
+# Core dependencies
+flask>=2.3.0
+flask-cors>=4.0.0
+websockets>=11.0.2
+
+# WebRTC și Video Processing
+aiortc>=1.6.0
+av>=10.0.0
+opencv-python>=4.8.0
+
+# Jetson Monitoring (va fi instalat manual pe Jetson)
+# jetpack-4.6  # Doar pe Jetson Nano/Xavier
+# jtop  # Doar pe sisteme Jetson
+
+# Utilities
+asyncio-mqtt>=0.13.0
+numpy>=1.24.0
+Pillow>=10.0.0
+
+# Development și Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+
+# Optional pentru debugging
+psutil>=5.9.0
