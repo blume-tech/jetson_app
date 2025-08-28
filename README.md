@@ -329,9 +329,3 @@ Pentru probleme și întrebări:
 - Verifică secțiunea **Troubleshooting** 
 - Deschide un issue pe GitHub
 - Consultă documentația NVIDIA Jetson
-
----
-
-**Autor**: Claude AI Assistant  
-**Versiune**: 1.0.0  
-**Data**: August 26, 2025
