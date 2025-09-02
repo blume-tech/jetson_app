@@ -1,9 +1,10 @@
 #!/bin/bash
 
-# Quick Setup Script pentru Unified Jetson Server
+# Quick Setup Script pentru Jetson IP Camera Server
 # Rulează acest script pentru setup rapid
 
-echo "🚀 === UNIFIED JETSON SERVER - QUICK SETUP ==="
+echo "🚀 === JETSON IP CAMERA SERVER - QUICK SETUP ==="
+echo "📹 Server cu auto-descoperire camere IP și monitorizare Jetson"
 echo ""
 
 # Culori
@@ -45,11 +46,12 @@ echo ""
 echo -e "${BLUE}📦 Ce vrei să faci?${NC}"
 echo "1) Setup local (fără Docker)"
 echo "2) Setup cu Docker"
-echo "3) Doar testare (presupune că serverul rulează)"
-echo "4) Cleanup complet"
+echo "3) Testare descoperire camere IP"
+echo "4) Testare server complet"
+echo "5) Cleanup complet"
 echo ""
 
-read -p "Alege opțiunea (1-4): " choice
+read -p "Alege opțiunea (1-5): " choice
 
 case $choice in
     1)
@@ -58,7 +60,7 @@ case $choice in
         # Instalează dependențele sistem
         echo "📦 Instalare dependențe sistem..."
         sudo apt-get update
-        sudo apt-get install -y python3-opencv v4l-utils curl netcat-openbsd bc
+        sudo apt-get install -y python3-opencv v4l-utils curl netcat-openbsd bc nmap
         
         # Instalează dependențele Python
         echo "🐍 Instalare dependențe Python..."
@@ -72,7 +74,8 @@ case $choice in
         fi
         
         echo -e "${GREEN}✅ Setup local complet!${NC}"
-        echo "🚀 Pornește serverul: python3 server.py"
+        echo "🚀 Pornește serverul cu camere IP: python3 server_ip_camera.py"
+        echo "🚀 Sau serverul cu camere USB: python3 server.py"
         ;;
         
     2)
@@ -95,7 +98,7 @@ case $choice in
         
         # Construiește imaginea
         echo "🔨 Construire imagine Docker..."
-        docker build -t unified-jetson-server .
+        docker build -t jetson-ip-camera-server .
         
         # Pornește cu docker-compose
         echo "🚀 Pornire cu docker-compose..."
@@ -103,22 +106,35 @@ case $choice in
         
         echo -e "${GREEN}✅ Setup Docker complet!${NC}"
         echo "📊 Verifică status: docker-compose ps"
+        echo "📹 Serverul va scana automat rețeaua pentru camere IP"
         ;;
         
     3)
-        echo -e "${BLUE}🧪 Rulare teste...${NC}"
+        echo -e "${BLUE}🔍 Testare descoperire camere IP...${NC}"
+        echo "📡 Scanez rețeaua locală pentru camere IP..."
+        
+        if [ ! -f "test_ip_cameras.py" ]; then
+            echo -e "${RED}❌ Fișierul test_ip_cameras.py nu există${NC}"
+            exit 1
+        fi
+        
+        python3 test_ip_cameras.py
+        ;;
+        
+    4)
+        echo -e "${BLUE}🧪 Testare server complet...${NC}"
         chmod +x test_server.sh
         ./test_server.sh
         ;;
         
-    4)
+    5)
         echo -e "${BLUE}🗑️  Cleanup complet...${NC}"
         
         # Oprește și șterge containere
         docker-compose down 2>/dev/null
-        docker stop jetson-unified-server 2>/dev/null
-        docker rm jetson-unified-server 2>/dev/null
-        docker rmi unified-jetson-server 2>/dev/null
+        docker stop jetson-ip-camera-server 2>/dev/null
+        docker rm jetson-ip-camera-server 2>/dev/null
+        docker rmi jetson-ip-camera-server 2>/dev/null
         
         # Șterge fișiere temporare
         rm -f test_logs.csv jetson_logs.csv *.log
@@ -142,7 +158,9 @@ echo -e "${BLUE}🔗 Linkuri utile după pornire:${NC}"
 echo "   🌐 API: http://localhost:8080"
 echo "   📊 Status: http://localhost:8080/status"
 echo "   📈 Metrici: http://localhost:8080/metrics"
+echo "   📹 Camere IP: http://localhost:8080/cameras"
+echo "   🔄 Rescan: http://localhost:8080/cameras/rescan"
 echo "   📹 WebRTC: ws://localhost:8081"
 
 echo ""
-echo -e "${GREEN}✨ Setup complet! Happy coding! 🚀${NC}"
+echo -e "${GREEN}✨ Setup complet! Server cu camere IP ready! 📹🚀${NC}"
