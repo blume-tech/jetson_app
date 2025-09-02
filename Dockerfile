@@ -55,6 +55,8 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Copiază codul sursă
 COPY server.py .
+COPY server_ip_camera.py .
+COPY test_ip_cameras.py .
 
 # Configurare porturi
 EXPOSE 8080 8081
@@ -63,14 +65,19 @@ EXPOSE 8080 8081
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
-# Verifică dispozitivele video la startup
+# Verifică dispozitivele video și rețeaua la startup
 RUN echo '#!/bin/bash\n\
 echo "🔍 Verificare dispozitive video disponibile:"\n\
 ls -la /dev/video* 2>/dev/null || echo "❌ Nu s-au găsit dispozitive video"\n\
 echo "🔍 Verificare module V4L2:"\n\
 lsmod | grep -E "(uvcvideo|v4l2)" || echo "⚠️ Module V4L2 nu sunt încărcate"\n\
-echo "🚀 Starting Unified Jetson Server..."\n\
-exec python3 server.py\n\
+echo "🌐 Verificare rețea locală:"\n\
+ip route | grep default || echo "⚠️ Nu s-a găsit gateway-ul rețelei"\n\
+echo "� Servere disponibile:"\n\
+echo "   - server.py (USB cameras)"\n\
+echo "   - server_ip_camera.py (IP cameras + USB)"\n\
+echo "�🚀 Starting Jetson IP Camera Server..."\n\
+exec python3 server_ip_camera.py\n\
 ' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 # Comandă de rulare
@@ -78,8 +85,8 @@ CMD ["/app/entrypoint.sh"]
 
 # Metadata
 LABEL maintainer="Claude AI Assistant"
-LABEL description="Unified Jetson Server - Monitoring și WebRTC Streaming"
-LABEL version="1.0.0"
+LABEL description="Jetson IP Camera Server - Monitoring, USB & IP Camera WebRTC Streaming"
+LABEL version="2.0.0"
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

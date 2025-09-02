@@ -2,7 +2,13 @@
 
 🚀 **Server unificat pentru monitorizarea sistemului Jetson și streaming video WebRTC**
 
-Un server Python complet care combină monitorizarea detaliată a sistemului Jetson (CPU, GPU, memorie, temperaturi, power) cu capacități de streaming video WebRTC de la multiple camere USB.
+Un server Python complet care combină monitorizarea detaliată a sistemului Jetson (CPU, GPU, memorie, temperaturi, power) cu capacități de streaming video WebRTC de la multiple camere USB și camere IP.
+
+## 📁 Fișiere Disponibile
+
+- **`server.py`** - Server original pentru camere USB
+- **`server_ip_camera.py`** - Server nou cu auto-descoperire camere IP
+- **`test_ip_cameras.py`** - Script de test pentru descoperirea camerelor IP
 
 ## ✨ Funcționalități
 
@@ -15,15 +21,25 @@ Un server Python complet care combină monitorizarea detaliată a sistemului Jet
 - **Export CSV**: Istoricul complet al datelor pentru analiză
 
 ### 📹 Streaming Video WebRTC
-- Streaming în timp real de la multiple camere USB
+- Streaming în timp real de la multiple camere USB **SAU** camere IP
 - Protocoal WebRTC pentru latență minimă
-- Suport pentru `/dev/video0`, `/dev/video1`, etc.
+- **USB**: Suport pentru `/dev/video0`, `/dev/video1`, etc.
+- **IP**: Auto-descoperire camere IP pe rețeaua locală
 - Configurare automată rezoluție și frame rate
+
+### 🔍 Descoperire Camere IP (NOU!)
+- **Scanare automată** a rețelei locale pentru camere IP
+- **Auto-detectare** protocoale MJPEG și RTSP
+- **Testare stream-uri** pentru validarea camerelor
+- **API endpoints** pentru management camere
+- **Suport multiple formate** de camere IP comerciale
 
 ### 🌐 API REST
 - `/metrics` - Ultimele metrici în timp real
 - `/status` - Status server și funcționalități
 - `/download_logs` - Export CSV complet
+- `/cameras` - Camerele IP descoperite (doar server_ip_camera.py)
+- `/cameras/rescan` - Rescanează pentru camere IP (doar server_ip_camera.py)
 - `/` - Informații generale despre server
 
 ## 🔧 Instalare și Configurare
@@ -193,6 +209,113 @@ ffplay /dev/video0
 gst-launch-1.0 v4l2src device=/dev/video0 ! videoconvert ! autovideosink
 ```
 
+## 📹 Server cu Camere IP (server_ip_camera.py)
+
+### 🆕 Funcționalități Noi
+- **Auto-descoperire camere IP** pe rețeaua locală
+- **Suport protocoale multiple**: MJPEG, RTSP
+- **Scanare inteligentă** cu verificare stream-uri
+- **API dedicat** pentru management camere IP
+
+### 🚀 Utilizare Server IP Camera
+
+#### Pornirea Serverului
+```bash
+# Rulează serverul cu descoperire IP camere
+python3 server_ip_camera.py
+```
+
+#### Testarea Descoperirii Camerelor
+```bash
+# Testează doar funcția de descoperire
+python3 test_ip_cameras.py
+```
+
+#### API Endpoints Specifice Camerelor IP
+
+**Vizualizează camerele descoperite:**
+```bash
+curl http://localhost:8080/cameras
+```
+
+**Rescanează rețeaua pentru camere:**
+```bash
+curl -X POST http://localhost:8080/cameras/rescan
+```
+
+**Exemplu răspuns /cameras:**
+```json
+{
+  "cameras_found": 2,
+  "cameras": [
+    {
+      "ip": "192.168.1.100",
+      "port": 80,
+      "url": "http://192.168.1.100:80/mjpeg",
+      "type": "mjpeg",
+      "path": "/mjpeg",
+      "discovered_at": "2025-09-02T10:30:45.123456"
+    },
+    {
+      "ip": "192.168.1.101", 
+      "port": 554,
+      "url": "rtsp://192.168.1.101:554/stream",
+      "type": "rtsp",
+      "path": "/stream",
+      "discovered_at": "2025-09-02T10:30:47.654321"
+    }
+  ]
+}
+```
+
+### 🔧 Configurare Camere IP
+
+#### Camere Suportate
+Serverul poate descoperi automat:
+- **Camere IP standard** cu MJPEG over HTTP
+- **Camere RTSP** (majoritatea camerelor IP moderne)
+- **Camere Axis** cu endpoint-uri specifice
+- **Camere de securitate** cu porturi comune (80, 554, 8080, 8081)
+
+#### Porturi Scanate
+```
+80, 554, 8080, 8081, 8554, 1935, 443
+```
+
+#### Path-uri Testate
+```
+/video, /mjpeg, /mjpg/video.mjpg, /video.cgi, 
+/videostream.cgi, /live, /stream, 
+/cam/realmonitor?channel=1&subtype=0,
+/axis-cgi/mjpg/video.cgi
+```
+
+#### Personalizare Scanare
+```python
+# În server_ip_camera.py, modifică:
+CAMERA_PORTS = [80, 554, 8080]  # Doar porturile dorite
+CAMERA_PATHS = ['/video', '/mjpeg']  # Doar path-urile necesare
+```
+
+### 🏠 Configurare Rețea
+
+#### Cerințe Rețea
+- Jetson și camerele IP în **aceeași rețea locală**
+- **Ping enabled** pe camerele IP
+- **Porturi deschise** pe camerele IP
+
+#### Verificare Rețea
+```bash
+# Verifică IP-ul local
+ip route | grep default
+
+# Scanează rețeaua manual
+nmap -sn 192.168.1.0/24
+
+# Testează o cameră cunoscută
+curl -I http://192.168.1.100/mjpeg
+```
+
 ### Troubleshooting
 
 **Problema: "jtop nu este disponibil"**
@@ -222,6 +345,46 @@ docker run --privileged --device=/dev/video0 ...
 
 # Verifică logs
 docker logs unified-jetson-server
+```
+
+**Problema: "Nu sunt camere IP găsite"**
+```bash
+# Verifică rețeaua locală
+ip route | grep default
+ping 192.168.1.1  # gateway-ul routerului
+
+# Scanează manual rețeaua
+nmap -sn 192.168.1.0/24
+
+# Verifică că rutează traficul
+sudo tcpdump -i any icmp
+
+# Rulează testul de descoperire
+python3 test_ip_cameras.py
+```
+
+**Problema: "Stream-ul cameră IP nu funcționează"**
+```bash
+# Testează manual cu curl
+curl -I http://192.168.1.100/mjpeg
+
+# Testează cu ffmpeg
+ffmpeg -f mjpeg -i http://192.168.1.100/mjpeg -t 5 test.mp4
+
+# Testează RTSP
+ffplay rtsp://192.168.1.100:554/stream
+
+# Verifică firewall-ul pe cameră
+telnet 192.168.1.100 80
+```
+
+**Problema: "Scanarea durează prea mult"**
+```bash
+# Reduce porturile scanate în server_ip_camera.py:
+CAMERA_PORTS = [80, 554]  # doar porturile principale
+
+# Reduce path-urile testate:
+CAMERA_PATHS = ['/mjpeg', '/video']
 ```
 
 ## 📊 Monitorizare și Logs

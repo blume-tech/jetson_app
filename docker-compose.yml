@@ -1,9 +1,9 @@
 version: '3.8'
 
 services:
-  unified-jetson-server:
+  jetson-ip-camera-server:
     build: .
-    container_name: jetson-unified-server
+    container_name: jetson-ip-camera-server
     restart: unless-stopped
     privileged: true
     network_mode: host
@@ -35,6 +35,7 @@ services:
       - VIDEO_DEVICES=/dev/video0,/dev/video1
       - MAX_HISTORY_SECONDS=600
       - DEBUG=0
+      - SERVER_TYPE=ip_camera  # ip_camera sau usb_camera
       
     # Health check
     healthcheck:

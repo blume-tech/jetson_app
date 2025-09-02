@@ -17,6 +17,8 @@ opencv-python>=4.8.0
 asyncio-mqtt>=0.13.0
 numpy>=1.24.0
 Pillow>=10.0.0
+requests>=2.31.0
+ipaddress>=1.0.23
 
 # Development și Testing
 pytest>=7.4.0
