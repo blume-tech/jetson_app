@@ -60,22 +60,58 @@ case $choice in
         # Instalează dependențele sistem
         echo "📦 Instalare dependențe sistem..."
         sudo apt-get update
-        sudo apt-get install -y python3-opencv v4l-utils curl netcat-openbsd bc nmap
+        sudo apt-get install -y python3-opencv v4l-utils curl netcat-openbsd bc nmap \
+            openssl libssl-dev build-essential libffi-dev python3-dev \
+            pkg-config libavformat-dev libavcodec-dev libavdevice-dev \
+            libavutil-dev libswscale-dev libswresample-dev libavfilter-dev
         
         # Instalează dependențele Python
         echo "🐍 Instalare dependențe Python..."
         pip3 install -r requirements.txt
         
+        # Generează certificat SSL pentru HTTPS/WSS
+        echo "🔐 Generare certificat SSL..."
+        if [ ! -f "cert.pem" ] || [ ! -f "key.pem" ]; then
+            openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem \
+                -days 365 -nodes -subj "/CN=localhost/O=Jetson Camera Server/C=RO"
+            echo -e "${GREEN}✅ Certificat SSL generat${NC}"
+        else
+            echo -e "${GREEN}✅ Certificat SSL există deja${NC}"
+        fi
+        
         # Pe Jetson, încearcă să instaleze jetson-stats
         if grep -q "tegra" /proc/cpuinfo 2>/dev/null; then
             echo "🎯 Jetson detectat - instalez jetson-stats..."
             sudo -H pip3 install jetson-stats
-            echo "💡 După instalare, rulează 'sudo reboot' pentru a activa jtop"
+            
+            # Configurare permisiuni pentru jtop
+            sudo usermod -aG video $USER
+            sudo usermod -aG i2c $USER
+            
+            # Activează jetson_clocks pentru performanță
+            if command -v jetson_clocks &> /dev/null; then
+                echo "⚡ Activez jetson_clocks pentru performanță optimă..."
+                sudo jetson_clocks
+            fi
+            
+            echo "💡 După instalare, rulează 'sudo reboot' pentru a activa jtop complet"
+        fi
+        
+        # Verifică și configurează dispozitivele video
+        echo "📹 Verificare dispozitive video..."
+        if ls /dev/video* 1> /dev/null 2>&1; then
+            echo -e "${GREEN}✅ Dispozitive video găsite:${NC}"
+            ls -la /dev/video*
+            # Setează permisiuni pentru utilizatorul curent
+            sudo usermod -aG video $USER
+        else
+            echo -e "${YELLOW}⚠️  Nu s-au găsit dispozitive video USB${NC}"
         fi
         
         echo -e "${GREEN}✅ Setup local complet!${NC}"
-        echo "🚀 Pornește serverul cu camere IP: python3 server_ip_camera.py"
+        echo "🚀 Pornește serverul cu camere IP (HTTPS): python3 server_ip_camera.py"
         echo "🚀 Sau serverul cu camere USB: python3 server.py"
+        echo "🔐 Serverul va folosi HTTPS pe portul 8080 și WSS pe portul 8081"
         ;;
         
     2)
@@ -155,12 +191,13 @@ ls -la
 
 echo ""
 echo -e "${BLUE}🔗 Linkuri utile după pornire:${NC}"
-echo "   🌐 API: http://localhost:8080"
-echo "   📊 Status: http://localhost:8080/status"
-echo "   📈 Metrici: http://localhost:8080/metrics"
-echo "   📹 Camere IP: http://localhost:8080/cameras"
-echo "   🔄 Rescan: http://localhost:8080/cameras/rescan"
-echo "   📹 WebRTC: ws://localhost:8081"
+echo "   🌐 API (HTTPS): https://localhost:8080"
+echo "   📊 Status: https://localhost:8080/status"
+echo "   📈 Metrici: https://localhost:8080/metrics"
+echo "   📹 Camere IP: https://localhost:8080/cameras"
+echo "   🔄 Rescan: https://localhost:8080/cameras/rescan"
+echo "   📹 WebRTC (WSS): wss://localhost:8081"
+echo "   🔐 Certificat SSL: cert.pem (generat automat)"
 
 echo ""
-echo -e "${GREEN}✨ Setup complet! Server cu camere IP ready! 📹🚀${NC}"
+echo -e "${GREEN}✨ Setup complet! Server cu camere IP ready cu HTTPS/WSS! 📹🚀🔐${NC}"

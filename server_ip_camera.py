@@ -23,6 +23,8 @@ import socket
 import subprocess
 import requests
 import concurrent.futures
+import ssl
+import os
 from datetime import datetime
 from threading import Thread, Lock
 
@@ -53,6 +55,10 @@ except ImportError:
 # Flask app
 app = Flask(__name__)
 CORS(app)
+
+# SSL Configuration
+SSL_CERT_PATH = "cert.pem"
+SSL_KEY_PATH = "key.pem"
 
 # Monitorizare Jetson
 latest_data = {}
@@ -137,6 +143,130 @@ MANUFACTURER_DEFAULTS = {
         'paths': ['/video', '/mjpeg', '/stream']
     }
 }
+
+# =============================================================================
+# FUNCȚII PENTRU SSL/HTTPS
+# =============================================================================
+
+def generate_ssl_certificate():
+    """Generează certificat SSL self-signed dacă nu există"""
+    if os.path.exists(SSL_CERT_PATH) and os.path.exists(SSL_KEY_PATH):
+        print("✅ Certificat SSL există deja")
+        return True
+    
+    print("🔐 Generez certificat SSL self-signed...")
+    try:
+        # Încearcă să folosească openssl dacă e disponibil
+        cmd = [
+            "openssl", "req", "-x509", "-newkey", "rsa:4096",
+            "-keyout", SSL_KEY_PATH, "-out", SSL_CERT_PATH,
+            "-days", "365", "-nodes",
+            "-subj", "/CN=localhost/O=Jetson Camera Server/C=RO"
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0:
+            print("✅ Certificat SSL generat cu openssl")
+            return True
+        else:
+            print("⚠️ openssl nu este disponibil, încerc cu Python...")
+    except FileNotFoundError:
+        print("⚠️ openssl nu este instalat, încerc cu Python...")
+    
+    # Fallback: generează certificat cu cryptography
+    try:
+        from cryptography import x509
+        from cryptography.x509.oid import NameOID
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.primitives import serialization
+        import datetime
+        
+        # Generează cheia privată
+        private_key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=2048,
+        )
+        
+        # Creează certificatul
+        subject = issuer = x509.Name([
+            x509.NameAttribute(NameOID.COUNTRY_NAME, "RO"),
+            x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "Romania"),
+            x509.NameAttribute(NameOID.LOCALITY_NAME, "Bucharest"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Jetson Camera Server"),
+            x509.NameAttribute(NameOID.COMMON_NAME, "localhost"),
+        ])
+        
+        cert = x509.CertificateBuilder().subject_name(
+            subject
+        ).issuer_name(
+            issuer
+        ).public_key(
+            private_key.public_key()
+        ).serial_number(
+            x509.random_serial_number()
+        ).not_valid_before(
+            datetime.datetime.utcnow()
+        ).not_valid_after(
+            datetime.datetime.utcnow() + datetime.timedelta(days=365)
+        ).add_extension(
+            x509.SubjectAlternativeName([
+                x509.DNSName("localhost"),
+                x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")),
+            ]),
+            critical=False,
+        ).sign(private_key, hashes.SHA256())
+        
+        # Salvează certificatul
+        with open(SSL_CERT_PATH, "wb") as f:
+            f.write(cert.public_bytes(serialization.Encoding.PEM))
+        
+        # Salvează cheia privată
+        with open(SSL_KEY_PATH, "wb") as f:
+            f.write(private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption()
+            ))
+        
+        print("✅ Certificat SSL generat cu Python cryptography")
+        return True
+        
+    except ImportError:
+        print("❌ Nici cryptography nu este disponibil")
+        print("💡 Instalează: pip install cryptography")
+        print("💡 Sau instalează openssl")
+        return False
+    except Exception as e:
+        print(f"❌ Eroare la generarea certificatului SSL: {e}")
+        return False
+
+def get_ssl_context():
+    """Returnează contextul SSL pentru servere"""
+    if not os.path.exists(SSL_CERT_PATH) or not os.path.exists(SSL_KEY_PATH):
+        if not generate_ssl_certificate():
+            return None
+    
+    try:
+        # Pentru Flask
+        return (SSL_CERT_PATH, SSL_KEY_PATH)
+    except Exception as e:
+        print(f"❌ Eroare la crearea contextului SSL: {e}")
+        return None
+
+def get_websocket_ssl_context():
+    """Returnează contextul SSL pentru WebSocket server"""
+    if not os.path.exists(SSL_CERT_PATH) or not os.path.exists(SSL_KEY_PATH):
+        if not generate_ssl_certificate():
+            return None
+    
+    try:
+        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ssl_context.load_cert_chain(certfile=SSL_CERT_PATH, keyfile=SSL_KEY_PATH)
+        return ssl_context
+    except Exception as e:
+        print(f"❌ Eroare la crearea contextului SSL pentru WebSocket: {e}")
+        return None
 
 # =============================================================================
 # FUNCȚII PENTRU DESCOPERIREA CAMERELOR IP
@@ -925,23 +1055,43 @@ async def webrtc_handler(websocket):
 # =============================================================================
 
 def run_flask_server():
-    """Rulează serverul Flask în thread separat"""
-    print(f"🌐 Starting Flask server on port {FLASK_PORT}")
-    app.run(host="0.0.0.0", port=FLASK_PORT, debug=False)
+    """Rulează serverul Flask cu HTTPS în thread separat"""
+    ssl_context = get_ssl_context()
+    if ssl_context:
+        print(f"🌐 Starting Flask server on port {FLASK_PORT} (HTTPS)")
+        app.run(host="0.0.0.0", port=FLASK_PORT, debug=False, ssl_context=ssl_context)
+    else:
+        print(f"⚠️ SSL nu este disponibil, pornesc Flask cu HTTP pe portul {FLASK_PORT}")
+        app.run(host="0.0.0.0", port=FLASK_PORT, debug=False)
 
 async def run_websocket_server():
-    """Rulează serverul WebSocket pentru WebRTC"""
-    print(f"📹 Starting WebSocket server on port {WEBSOCKET_PORT}")
-    async with websockets.serve(webrtc_handler, "0.0.0.0", WEBSOCKET_PORT):
-        await asyncio.Future()  # run forever
+    """Rulează serverul WebSocket pentru WebRTC cu WSS"""
+    ssl_context = get_websocket_ssl_context()
+    if ssl_context:
+        print(f"📹 Starting WebSocket server on port {WEBSOCKET_PORT} (WSS)")
+        async with websockets.serve(webrtc_handler, "0.0.0.0", WEBSOCKET_PORT, ssl=ssl_context):
+            await asyncio.Future()  # run forever
+    else:
+        print(f"⚠️ SSL nu este disponibil, pornesc WebSocket cu WS pe portul {WEBSOCKET_PORT}")
+        async with websockets.serve(webrtc_handler, "0.0.0.0", WEBSOCKET_PORT):
+            await asyncio.Future()  # run forever
 
 def main():
     """Funcția principală care pornește toate serviciile"""
     print("🚀 Starting Enhanced Jetson IP Camera Server v2.0...")
     print("=" * 80)
+    
+    # Verifică și generează certificatul SSL
+    ssl_available = generate_ssl_certificate()
+    
     print("📊 Servicii disponibile:")
-    print(f"   🌐 Flask API: http://0.0.0.0:{FLASK_PORT}")
-    print(f"   📹 WebRTC WebSocket: ws://0.0.0.0:{WEBSOCKET_PORT}")
+    if ssl_available:
+        print(f"   🌐 Flask API: https://0.0.0.0:{FLASK_PORT} (HTTPS) 🔐")
+        print(f"   📹 WebRTC WebSocket: wss://0.0.0.0:{WEBSOCKET_PORT} (WSS) 🔐")
+    else:
+        print(f"   🌐 Flask API: http://0.0.0.0:{FLASK_PORT} (HTTP) ⚠️")
+        print(f"   📹 WebRTC WebSocket: ws://0.0.0.0:{WEBSOCKET_PORT} (WS) ⚠️")
+    
     print(f"   📈 Monitorizare Jetson: {'✅ Activă' if JTOP_AVAILABLE else '❌ Dezactivată (jtop lipsă)'}")
     print(f"   🔍 Descoperire camere IP: ✅ Activă (Enhanced)")
     print()
@@ -952,6 +1102,8 @@ def main():
     print(f"   ⚡ Scanare paralelă pentru performanță sporită")
     print(f"   🔐 Testare autentificare pentru camere standard")
     print(f"   ✅ Validare stream-uri pentru stabilitate")
+    if ssl_available:
+        print(f"   🔐 Comunicare securizată HTTPS/WSS")
     print("=" * 80)
     
     # Pornește scanarea pentru camere IP
@@ -973,7 +1125,8 @@ def main():
     
     # Pornește serverul WebSocket (principal)
     try:
-        print(f"📹 Pornesc serverul WebRTC pe portul {WEBSOCKET_PORT}...")
+        protocol = "WSS" if ssl_available else "WS"
+        print(f"📹 Pornesc serverul WebRTC cu {protocol} pe portul {WEBSOCKET_PORT}...")
         asyncio.run(run_websocket_server())
     except KeyboardInterrupt:
         print("\n🛑 Server oprit de utilizator")
