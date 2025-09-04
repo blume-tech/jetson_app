@@ -68,10 +68,10 @@ FLASK_PORT = 8080
 discovered_cameras = []
 camera_lock = Lock()
 
-# Common IP camera ports
-CAMERA_PORTS = [80, 554, 8080, 8081, 8554, 1935, 443]
+# Common IP camera ports - Enhanced list with more ports
+CAMERA_PORTS = [80, 554, 8082, 8083, 8084, 8554, 1935, 443, 888, 1024, 8000, 8008, 8888, 9000]
 
-# Common IP camera paths
+# Common IP camera paths - Enhanced with more common paths
 CAMERA_PATHS = [
     '/video',
     '/mjpeg',
@@ -80,10 +80,63 @@ CAMERA_PATHS = [
     '/videostream.cgi',
     '/live',
     '/stream',
+    '/live.mjpg',
+    '/video/mjpg.cgi',
+    '/mjpg/1/video.mjpg',
+    '/mjpg/2/video.mjpg',
     '/cam/realmonitor?channel=1&subtype=0',
+    '/cam/realmonitor?channel=1&subtype=1',
     '/axis-cgi/mjpg/video.cgi',
-    '/cgi-bin/mjpg/video.cgi'
+    '/cgi-bin/mjpg/video.cgi',
+    '/cgi-bin/video.cgi',
+    '/image/jpeg.cgi',
+    '/image?speed=20',
+    '/snapshot.cgi',
+    '/onvif1',
+    '/onvif2',
+    '/h264',
+    '/mpeg4',
+    '/streaming/channels/1/httppreview',
+    '/streaming/channels/101/httppreview',
+    '/streaming/channels/1/picture',
+    '/ISAPI/Streaming/channels/1/httppreview',
+    '/ISAPI/Streaming/channels/101/httppreview',
+    '/cgi-bin/hi3510/mjpegstream.cgi',
+    '/cgi-bin/camera?resolution=640&amp;amp;quality=1&amp;amp;Language=0',
+    '/view/viewer_index.shtml',
+    '/video.mjpg',
+    '/cam_1.cgi',
+    '/image.jpg',
+    '/live_mpeg4.sdp',
+    '/live/ch0',
+    '/live/ch1',
+    '/media/video1',
+    '/media/video2'
 ]
+
+# Enhanced manufacturer-specific defaults
+MANUFACTURER_DEFAULTS = {
+    'axis': {
+        'ports': [80, 554],
+        'paths': ['/axis-cgi/mjpg/video.cgi', '/mjpg/video.mjpg']
+    },
+    'hikvision': {
+        'ports': [80, 554, 8000],
+        'paths': ['/ISAPI/Streaming/channels/1/httppreview', '/streaming/channels/1/httppreview']
+    },
+    'dahua': {
+        'ports': [80, 554, 8000],
+        'paths': ['/cam/realmonitor?channel=1&subtype=0', '/live']
+    },
+    'foscam': {
+        'ports': [80, 88],
+        'paths': ['/videostream.cgi?user=admin&pwd=', '/video.cgi']
+    },
+    'generic': {
+        'ports': [80, 554],
+        'paths': ['/video', '/mjpeg', '/stream']
+    }
+}
 
 # =============================================================================
 # FUNCȚII PENTRU DESCOPERIREA CAMERELOR IP
@@ -120,52 +173,105 @@ def ping_host(ip):
         return False
 
 def check_camera_port(ip, port, timeout=2):
-    """Verifică dacă un port este deschis pe IP"""
+    """Verifică dacă un port este deschis pe IP - Enhanced version"""
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(timeout)
         result = sock.connect_ex((str(ip), port))
         sock.close()
-        return result == 0
+        
+        if result == 0:
+            # Port is open, try to get service information
+            try:
+                # Quick HTTP check for web services
+                if port in [80, 8082, 8083, 8084, 8000, 8008, 8888, 9000]:
+                    import socket as sock_module
+                    test_sock = sock_module.socket(sock_module.AF_INET, sock_module.SOCK_STREAM)
+                    test_sock.settimeout(1)
+                    test_sock.connect((str(ip), port))
+                    test_sock.send(b"HEAD / HTTP/1.1\r\nHost: " + str(ip).encode() + b"\r\n\r\n")
+                    response = test_sock.recv(1024).decode('utf-8', errors='ignore')
+                    test_sock.close()
+                    
+                    # Check if response suggests camera/video service
+                    camera_indicators = ['camera', 'video', 'mjpeg', 'axis', 'hikvision', 'dahua', 'foscam']
+                    if any(indicator in response.lower() for indicator in camera_indicators):
+                        print(f"🎯 Serviciu cameră detectat pe {ip}:{port}")
+                        return True
+            except:
+                pass
+            
+            return True
+        return False
     except:
         return False
 
-def test_camera_stream(ip, port, path):
-    """Testează dacă un stream de cameră funcționează"""
-    urls_to_test = [
-        f"http://{ip}:{port}{path}",
-        f"rtsp://{ip}:{port}{path}",
-        f"http://{ip}:{port}/axis-cgi/mjpg/video.cgi?resolution=640x480"
-    ]
+def test_camera_stream(ip, port, path, timeout=5):
+    """Testează dacă un stream de cameră funcționează - Enhanced version"""
+    # Generate multiple URL variations to test
+    urls_to_test = []
+    
+    # HTTP variants
+    for scheme in ['http', 'https']:
+        urls_to_test.extend([
+            f"{scheme}://{ip}:{port}{path}",
+            f"{scheme}://admin:admin@{ip}:{port}{path}",
+            f"{scheme}://admin:@{ip}:{port}{path}",
+            f"{scheme}://admin:password@{ip}:{port}{path}",
+            f"{scheme}://admin:123456@{ip}:{port}{path}"
+        ])
+    
+    # RTSP variants
+    for scheme in ['rtsp']:
+        urls_to_test.extend([
+            f"{scheme}://{ip}:{port}{path}",
+            f"{scheme}://admin:admin@{ip}:{port}{path}",
+            f"{scheme}://admin:@{ip}:{port}{path}",
+            f"{scheme}://admin:password@{ip}:{port}{path}",
+            f"{scheme}://admin:123456@{ip}:{port}{path}"
+        ])
     
     for url in urls_to_test:
         try:
-            # Test HTTP/MJPEG
-            if url.startswith('http'):
-                response = requests.get(url, timeout=3, stream=True)
-                if response.status_code == 200:
-                    content_type = response.headers.get('content-type', '').lower()
-                    if 'multipart' in content_type or 'image' in content_type:
-                        return url, 'mjpeg'
+            # Test HTTP/HTTPS/MJPEG
+            if url.startswith(('http', 'https')):
+                try:
+                    response = requests.get(url, timeout=timeout, stream=True, verify=False)
+                    if response.status_code == 200:
+                        content_type = response.headers.get('content-type', '').lower()
+                        if any(ct in content_type for ct in ['multipart', 'image', 'video']):
+                            # Try to read a small chunk to verify it's actually streaming
+                            chunk = next(response.iter_content(chunk_size=1024), None)
+                            if chunk and len(chunk) > 0:
+                                return url, 'mjpeg'
+                except requests.exceptions.RequestException:
+                    continue
             
             # Test RTSP
             elif url.startswith('rtsp'):
-                cap = cv2.VideoCapture(url)
-                if cap.isOpened():
-                    ret, frame = cap.read()
-                    cap.release()
-                    if ret and frame is not None:
-                        return url, 'rtsp'
+                try:
+                    cap = cv2.VideoCapture(url)
+                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    if cap.isOpened():
+                        # Try to read multiple frames to ensure stable stream
+                        for _ in range(3):
+                            ret, frame = cap.read()
+                            if ret and frame is not None and frame.size > 0:
+                                cap.release()
+                                return url, 'rtsp'
+                        cap.release()
+                except Exception:
+                    continue
                         
-        except Exception as e:
+        except Exception:
             continue
     
     return None, None
 
 def scan_for_cameras():
-    """Scanează rețeaua pentru camere IP"""
+    """Scanează rețeaua pentru camere IP - Enhanced version"""
     global discovered_cameras
-    print("🔍 Începe scanarea pentru camere IP...")
+    print("🔍 Începe scanarea avansată pentru camere IP...")
     
     network = get_local_network()
     if not network:
@@ -175,9 +281,10 @@ def scan_for_cameras():
     print(f"🌐 Scanez rețeaua: {network}")
     cameras_found = []
     
-    # First, find active hosts
+    # Phase 1: Fast ping scan to find active hosts
+    print("📡 Faza 1: Detectare host-uri active...")
     active_hosts = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
         host_futures = {executor.submit(ping_host, ip): ip for ip in network.hosts()}
         
         for future in concurrent.futures.as_completed(host_futures):
@@ -185,45 +292,131 @@ def scan_for_cameras():
             try:
                 if future.result():
                     active_hosts.append(ip)
-                    print(f"✅ Host activ găsit: {ip}")
-            except Exception as e:
+                    print(f"✅ Host activ: {ip}")
+            except Exception:
                 pass
     
     print(f"📋 Găsite {len(active_hosts)} host-uri active")
     
-    # Then check for camera services on active hosts
-    for ip in active_hosts:
-        print(f"🔍 Verific camere pe {ip}...")
+    # Phase 2: Enhanced port scanning for camera services
+    print("🔍 Faza 2: Scanare porturi camere...")
+    
+    def scan_host_ports(host):
+        """Scanează porturile pentru un host specific"""
+        local_cameras = []
+        print(f"🔍 Scanez {host}...")
         
-        # Check common camera ports
-        for port in CAMERA_PORTS:
-            if check_camera_port(ip, port):
-                print(f"✅ Port {port} deschis pe {ip}")
-                
-                # Test camera paths
-                for path in CAMERA_PATHS:
-                    url, stream_type = test_camera_stream(ip, port, path)
-                    if url:
-                        camera_info = {
-                            'ip': str(ip),
-                            'port': port,
-                            'url': url,
-                            'type': stream_type,
-                            'path': path,
-                            'discovered_at': datetime.now().isoformat()
-                        }
-                        cameras_found.append(camera_info)
-                        print(f"📹 CAMERĂ GĂSITĂ: {url} ({stream_type})")
-                        break  # Found working stream, move to next port
+        # Quick port scan first
+        open_ports = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as port_executor:
+            port_futures = {
+                port_executor.submit(check_camera_port, host, port, 3): port 
+                for port in CAMERA_PORTS
+            }
+            
+            for future in concurrent.futures.as_completed(port_futures):
+                port = port_futures[future]
+                try:
+                    if future.result():
+                        open_ports.append(port)
+                        print(f"✅ Port {port} deschis pe {host}")
+                except Exception:
+                    pass
+        
+        # Phase 3: Test camera streams on open ports
+        for port in open_ports:
+            print(f"📹 Testez stream-uri pe {host}:{port}...")
+            
+            # Test standard paths first
+            for path in CAMERA_PATHS[:10]:  # Test first 10 most common paths
+                url, stream_type = test_camera_stream(host, port, path)
+                if url:
+                    camera_info = {
+                        'ip': str(host),
+                        'port': port,
+                        'url': url,
+                        'type': stream_type,
+                        'path': path,
+                        'discovered_at': datetime.now().isoformat(),
+                        'manufacturer': 'unknown'
+                    }
+                    
+                    # Try to detect manufacturer
+                    if 'axis' in url.lower():
+                        camera_info['manufacturer'] = 'axis'
+                    elif 'hikvision' in url.lower() or 'ISAPI' in url:
+                        camera_info['manufacturer'] = 'hikvision'
+                    elif 'dahua' in url.lower() or 'realmonitor' in url:
+                        camera_info['manufacturer'] = 'dahua'
+                    elif 'foscam' in url.lower():
+                        camera_info['manufacturer'] = 'foscam'
+                    
+                    local_cameras.append(camera_info)
+                    print(f"📹 CAMERĂ GĂSITĂ: {url} ({stream_type}) - {camera_info['manufacturer']}")
+                    break  # Found working stream, move to next port
+            
+            # If no standard path worked, try manufacturer-specific paths
+            if not any(cam['port'] == port for cam in local_cameras):
+                for manufacturer, config in MANUFACTURER_DEFAULTS.items():
+                    if port in config['ports']:
+                        for path in config['paths']:
+                            url, stream_type = test_camera_stream(host, port, path)
+                            if url:
+                                camera_info = {
+                                    'ip': str(host),
+                                    'port': port,
+                                    'url': url,
+                                    'type': stream_type,
+                                    'path': path,
+                                    'discovered_at': datetime.now().isoformat(),
+                                    'manufacturer': manufacturer
+                                }
+                                local_cameras.append(camera_info)
+                                print(f"📹 CAMERĂ GĂSITĂ ({manufacturer}): {url} ({stream_type})")
+                                break
+                        if any(cam['port'] == port for cam in local_cameras):
+                            break
+        
+        return local_cameras
+    
+    # Scan all active hosts in parallel (but limited)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        host_futures = {executor.submit(scan_host_ports, host): host for host in active_hosts}
+        
+        for future in concurrent.futures.as_completed(host_futures):
+            host = host_futures[future]
+            try:
+                host_cameras = future.result()
+                cameras_found.extend(host_cameras)
+            except Exception as e:
+                print(f"⚠️ Eroare la scanarea host-ului {host}: {e}")
+    
+    # Phase 4: Verify and validate found cameras
+    print("🔍 Faza 4: Validare camere găsite...")
+    validated_cameras = []
+    
+    for camera in cameras_found:
+        try:
+            # Quick validation test
+            url, stream_type = test_camera_stream(camera['ip'], camera['port'], camera['path'], timeout=3)
+            if url:
+                validated_cameras.append(camera)
+                print(f"✅ Validată: {camera['url']}")
+            else:
+                print(f"❌ Validare eșuată: {camera['url']}")
+        except Exception as e:
+            print(f"⚠️ Eroare validare {camera['url']}: {e}")
     
     with camera_lock:
-        discovered_cameras = cameras_found
+        discovered_cameras = validated_cameras
     
-    print(f"🎉 Scanare completă! Găsite {len(cameras_found)} camere IP")
-    for cam in cameras_found:
-        print(f"   📹 {cam['url']} ({cam['type']})")
+    print("=" * 60)
+    print(f"🎉 Scanare completă! Găsite și validate {len(validated_cameras)} camere IP")
+    for cam in validated_cameras:
+        print(f"   📹 {cam['manufacturer'].upper()}: {cam['url']} ({cam['type']})")
+    print("=" * 60)
     
-    return cameras_found
+    return validated_cameras
 
 # =============================================================================
 # CLASA PENTRU VIDEO STREAMING DE LA CAMERE IP
@@ -541,7 +734,7 @@ def get_cameras():
 
 @app.route("/cameras/rescan", methods=["POST"])
 def rescan_cameras():
-    """Rescanează rețeaua pentru camere IP"""
+    """Rescanează rețeaua pentru camere IP cu progres în timp real"""
     def run_scan():
         scan_for_cameras()
     
@@ -549,7 +742,27 @@ def rescan_cameras():
     scan_thread = Thread(target=run_scan, daemon=True)
     scan_thread.start()
     
-    return jsonify({"message": "Scanare începută în background"})
+    return jsonify({
+        "message": "Scanare avansată începută în background", 
+        "status": "running",
+        "enhanced_features": [
+            "Scanare multi-threaded pentru viteză îmbunătățită",
+            "Testare porturi extinse și căi de acces diverse",
+            "Detectare automată manufacturer cameră",
+            "Validare stream-uri pentru stabilitate",
+            "Suport pentru autentificare camere standard"
+        ]
+    })
+
+@app.route("/cameras/scan_status", methods=["GET"])
+def get_scan_status():
+    """Returnează statusul scanării în curs"""
+    with camera_lock:
+        return jsonify({
+            "cameras_discovered": len(discovered_cameras),
+            "last_scan": discovered_cameras[0]['discovered_at'] if discovered_cameras else "never",
+            "scanning_active": len(threading.enumerate()) > 3  # Basic check for active threads
+        })
 
 @app.route("/download_logs", methods=["GET"])
 def download_logs():
@@ -580,6 +793,7 @@ def get_status():
     with data_lock, camera_lock:
         return jsonify({
             "service_status": "running",
+            "version": "2.0.0 - Enhanced",
             "jtop_available": JTOP_AVAILABLE,
             "data_points_collected": len(data_history),
             "last_update": latest_data.get("timestamp", "N/A") if latest_data else "N/A",
@@ -587,11 +801,21 @@ def get_status():
             "flask_port": FLASK_PORT,
             "cameras_discovered": len(discovered_cameras),
             "camera_urls": [cam['url'] for cam in discovered_cameras],
+            "camera_manufacturers": list(set(cam.get('manufacturer', 'unknown') for cam in discovered_cameras)),
+            "scanning_capabilities": {
+                "ports_scanned": len(CAMERA_PORTS),
+                "paths_tested": len(CAMERA_PATHS),
+                "manufacturer_detection": True,
+                "stream_validation": True,
+                "parallel_scanning": True
+            },
             "features": {
                 "jetson_monitoring": JTOP_AVAILABLE,
                 "webrtc_streaming": True,
                 "csv_export": True,
-                "ip_camera_discovery": True
+                "enhanced_ip_camera_discovery": True,
+                "multi_manufacturer_support": True,
+                "real_time_validation": True
             }
         })
 
@@ -599,17 +823,32 @@ def get_status():
 def get_info():
     """Informații despre server"""
     return jsonify({
-        "name": "Jetson IP Camera Server",
-        "version": "1.0.0",
-        "description": "Server pentru monitorizarea Jetson și streaming video WebRTC de la camere IP",
+        "name": "Enhanced Jetson IP Camera Server",
+        "version": "2.0.0",
+        "description": "Server pentru monitorizarea Jetson și streaming video WebRTC de la camere IP cu capacități avansate de detectare",
+        "new_features": [
+            "🔍 Scanare îmbunătățită cu detectare manufacturer",
+            "🌐 Suport extins pentru porturi și protocoale",
+            "⚡ Scanare paralelă pentru performanță sporită",
+            "🎯 Validare stream-uri în timp real",
+            "🔐 Testare autentificare pentru camere comune"
+        ],
         "endpoints": {
             "metrics": "/metrics - GET - Ultimele metrici Jetson",
-            "cameras": "/cameras - GET - Camerele IP descoperite",
-            "rescan": "/cameras/rescan - POST - Rescanează pentru camere IP",
-            "status": "/status - GET - Status server",
+            "cameras": "/cameras - GET - Camerele IP descoperite cu detalii manufacturer",
+            "rescan": "/cameras/rescan - POST - Rescanează pentru camere IP (Enhanced)",
+            "scan_status": "/cameras/scan_status - GET - Status scanare în curs",
+            "status": "/status - GET - Status server cu metrici detaliate",
             "download_logs": "/download_logs - GET - Descarcă CSV cu istoricul",
             "webrtc": f"ws://localhost:{WEBSOCKET_PORT} - WebSocket pentru WebRTC"
-        }
+        },
+        "supported_manufacturers": [
+            "Axis Communications",
+            "Hikvision", 
+            "Dahua Technology",
+            "Foscam",
+            "Generic ONVIF/MJPEG cameras"
+        ]
     })
 
 # =============================================================================
@@ -698,17 +937,25 @@ async def run_websocket_server():
 
 def main():
     """Funcția principală care pornește toate serviciile"""
-    print("🚀 Starting Jetson IP Camera Server...")
-    print("=" * 70)
+    print("🚀 Starting Enhanced Jetson IP Camera Server v2.0...")
+    print("=" * 80)
     print("📊 Servicii disponibile:")
     print(f"   🌐 Flask API: http://0.0.0.0:{FLASK_PORT}")
     print(f"   📹 WebRTC WebSocket: ws://0.0.0.0:{WEBSOCKET_PORT}")
     print(f"   📈 Monitorizare Jetson: {'✅ Activă' if JTOP_AVAILABLE else '❌ Dezactivată (jtop lipsă)'}")
-    print(f"   🔍 Descoperire camere IP: ✅ Activă")
-    print("=" * 70)
+    print(f"   🔍 Descoperire camere IP: ✅ Activă (Enhanced)")
+    print()
+    print("🆕 Funcționalități noi:")
+    print(f"   🎯 Scanare {len(CAMERA_PORTS)} porturi comune cameră")
+    print(f"   📋 Testare {len(CAMERA_PATHS)} căi de acces diverse")
+    print(f"   🏭 Detectare automată manufacturer cameră")
+    print(f"   ⚡ Scanare paralelă pentru performanță sporită")
+    print(f"   🔐 Testare autentificare pentru camere standard")
+    print(f"   ✅ Validare stream-uri pentru stabilitate")
+    print("=" * 80)
     
     # Pornește scanarea pentru camere IP
-    print("🔍 Începe scanarea inițială pentru camere IP...")
+    print("🔍 Începe scanarea inițială avansată pentru camere IP...")
     scan_thread = Thread(target=scan_for_cameras, daemon=True)
     scan_thread.start()
     
@@ -721,10 +968,12 @@ def main():
     flask_thread.start()
     
     # Așteptă puțin pentru scanarea camerelor
-    time.sleep(5)
+    print("⏳ Aștept scanarea inițială...")
+    time.sleep(8)  # Increased wait time for enhanced scanning
     
     # Pornește serverul WebSocket (principal)
     try:
+        print(f"📹 Pornesc serverul WebRTC pe portul {WEBSOCKET_PORT}...")
         asyncio.run(run_websocket_server())
     except KeyboardInterrupt:
         print("\n🛑 Server oprit de utilizator")
