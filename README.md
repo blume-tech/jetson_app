@@ -1,16 +1,27 @@
-# Unified Jetson Server
+# Enhanced Jetson IP Camera Server
 
-🚀 **Server unificat pentru monitorizarea sistemului Jetson și streaming video WebRTC**
+🚀 **Server unificat cu HTTPS/WSS pentru monitorizarea sistemului Jetson și streaming video WebRTC**
 
-Un server Python complet care combină monitorizarea detaliată a sistemului Jetson (CPU, GPU, memorie, temperaturi, power) cu capacități de streaming video WebRTC de la multiple camere USB și camere IP.
+Un server Python complet cu funcționalități avansate care combină monitorizarea detaliată a sistemului Jetson (CPU, GPU, memorie, temperaturi, power) cu capacități de streaming video WebRTC de la multiple camere USB și camere IP, plus endpoint-uri de test pentru integrare cu platforme externe.
 
 ## 📁 Fișiere Disponibile
 
 - **`server.py`** - Server original pentru camere USB
-- **`server_ip_camera.py`** - Server nou cu auto-descoperire camere IP
+- **`server_ip_camera.py`** - Server enhanced cu camere IP și SSL/HTTPS
 - **`test_ip_cameras.py`** - Script de test pentru descoperirea camerelor IP
+- **`test_connection.py`** - Script complet pentru testarea conexiunii din platformă
+- **`quick_test.sh`** - Script rapid de test bash
+- **`generate_ssl.sh`** - Generator certificat SSL
+- **`TEST_ENDPOINTS.md`** - Documentație detaliată endpoint-uri test
 
 ## ✨ Funcționalități
+
+### 🔐 Securitate și Conectivitate
+- **HTTPS/SSL**: Comunicare securizată pe portul 8080
+- **WSS (WebSocket Secure)**: Video streaming securizat pe portul 8081
+- **Certificat SSL**: Generare automată self-signed pentru dezvoltare
+- **CORS**: Suport cross-origin pentru integrare web
+- **Platform Integration**: Endpoint-uri dedicate pentru testare din platforme externe
 
 ### 📊 Monitorizare Jetson
 - **CPU**: Usage per core, frequencies, governors, idle states
@@ -22,24 +33,35 @@ Un server Python complet care combină monitorizarea detaliată a sistemului Jet
 
 ### 📹 Streaming Video WebRTC
 - Streaming în timp real de la multiple camere USB **SAU** camere IP
-- Protocoal WebRTC pentru latență minimă
+- Protocoal WebRTC pentru latență minimă cu WSS security
 - **USB**: Suport pentru `/dev/video0`, `/dev/video1`, etc.
 - **IP**: Auto-descoperire camere IP pe rețeaua locală
 - Configurare automată rezoluție și frame rate
 
-### 🔍 Descoperire Camere IP (NOU!)
-- **Scanare automată** a rețelei locale pentru camere IP
-- **Auto-detectare** protocoale MJPEG și RTSP
-- **Testare stream-uri** pentru validarea camerelor
-- **API endpoints** pentru management camere
-- **Suport multiple formate** de camere IP comerciale
+### 🔍 Descoperire Camere IP Enhanced
+- **Scanare avansată** cu detectare manufacturer (Hikvision, Dahua, Axis, Foscam)
+- **Scanare paralelă** pentru performanță sporită
+- **Auto-detectare** protocoale MJPEG și RTSP cu autentificare
+- **Testare stream-uri** pentru validarea stabilității camerelor
+- **API endpoints** pentru management și rescanare camere
+- **Suport extended** pentru 16 porturi și 40+ căi de acces
+
+### 🧪 Test și Monitoring Endpoints
+- **`/ping`** - Test rapid conectivitate
+- **`/test-connection`** - Test complet sistem cu raport detaliat
+- **`/system-info`** - Informații hardware și OS pentru debugging  
+- **`/status`** - Status server cu SSL și uptime info
 
 ### 🌐 API REST
 - `/metrics` - Ultimele metrici în timp real
-- `/status` - Status server și funcționalități
+- `/status` - Status server cu funcționalități SSL și uptime
 - `/download_logs` - Export CSV complet
-- `/cameras` - Camerele IP descoperite (doar server_ip_camera.py)
-- `/cameras/rescan` - Rescanează pentru camere IP (doar server_ip_camera.py)
+- `/cameras` - Camerele IP descoperite cu manufacturer info
+- `/cameras/rescan` - Rescanează pentru camere IP (enhanced)
+- `/cameras/scan_status` - Status scanare în curs
+- `/ping` - Test rapid conectivitate
+- `/test-connection` - Test complet pentru integrare platformă
+- `/system-info` - Informații sistem pentru debugging
 - `/` - Informații generale despre server
 
 ## 🔧 Instalare și Configurare
@@ -102,30 +124,112 @@ pip3 install -r requirements.txt
 sudo -H pip3 install jetson-stats
 ```
 
-2. **Rulează serverul:**
+2. **Generează certificat SSL:**
 ```bash
+# Opțional: generează certificat SSL manual
+./generate_ssl.sh
+
+# Sau va fi generat automat la pornirea serverului
+```
+
+3. **Rulează serverul:**
+```bash
+# Server cu camere IP și SSL
+python3 server_ip_camera.py
+
+# Server simplu cu camere USB
 python3 server.py
 ```
+
+## 🧪 Testare și Integrare Platformă
+
+### Test Endpoints pentru Verificare Conexiune
+
+Serverul oferă endpoint-uri dedicate pentru testarea conexiunii din platforme externe:
+
+```bash
+# Test rapid ping
+curl -k https://localhost:8080/ping
+
+# Test complet sistem
+curl -k https://localhost:8080/test-connection
+
+# Informații sistem pentru debugging
+curl -k https://localhost:8080/system-info
+```
+
+### Scripturi de Test Automate
+
+**Test Python complet:**
+```bash
+# Test local cu HTTPS
+python3 test_connection.py
+
+# Test server remote
+python3 test_connection.py --url https://192.168.1.50:8080
+
+# Test cu HTTP (nu HTTPS)
+python3 test_connection.py --http
+```
+
+**Test bash rapid:**
+```bash
+# Test local
+./quick_test.sh
+
+# Test server remote  
+./quick_test.sh https://192.168.1.50:8080
+```
+
+### Integrare în Platformă Web
+
+**JavaScript example:**
+```javascript
+async function testJetsonConnection(serverUrl) {
+  try {
+    const response = await fetch(`${serverUrl}/test-connection`);
+    const data = await response.json();
+    
+    return {
+      online: data.jetson_status === 'online',
+      status: data.overall_status,
+      message: data.message,
+      cameras: data.test_details?.camera_discovery?.cameras_found || 0
+    };
+  } catch (error) {
+    return { online: false, error: error.message };
+  }
+}
+```
+
+**Documentație detaliată:** Vezi `TEST_ENDPOINTS.md` pentru exemple complete.
 
 ## 🚀 Utilizare
 
 ### Pornirea Serverului
 ```bash
-# Metoda 1: Docker (recomandat)
-docker run --privileged --device=/dev/video0 -p 8080:8080 -p 8081:8081 unified-jetson-server
+# Metoda 1: Docker (recomandat) 
+docker-compose up -d
 
-# Metoda 2: Direct
+# Metoda 2: Direct cu SSL
+python3 server_ip_camera.py
+
+# Metoda 3: Server simplu USB
 python3 server.py
 ```
 
 ### Accesarea Serviciilor
 
-**API REST (Port 8080):**
+**API REST (Port 8080 - HTTPS):**
 ```bash
 # Status general
-curl http://localhost:8080/status
+curl -k https://localhost:8080/status
+
+# Test conexiune complet
+curl -k https://localhost:8080/test-connection
 
 # Metrici în timp real
+curl -k https://localhost:8080/metrics
 curl http://localhost:8080/metrics
 
 # Descarcă logs CSV

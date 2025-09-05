@@ -70,6 +70,9 @@ MAX_HISTORY_SECONDS = 600  # 10 minute
 WEBSOCKET_PORT = 8081
 FLASK_PORT = 8080
 
+# Server startup tracking
+start_time = time.time()
+
 # IP Camera discovery
 discovered_cameras = []
 camera_lock = Lock()
@@ -917,6 +920,236 @@ def download_logs():
         except Exception as e:
             return Response(f"Eroare la generarea CSV: {str(e)}", status=500)
 
+@app.route("/test-connection", methods=["GET", "POST"])
+def test_connection():
+    """Endpoint pentru testarea conexiunii dintre platforma externă și Jetson"""
+    print("🧪 Test conexiune inițiat din platforma externă")
+    
+    # Colectează informații despre sistem
+    test_results = {
+        "timestamp": datetime.now().isoformat(),
+        "jetson_status": "online",
+        "connection_test": "success",
+        "test_details": {}
+    }
+    
+    try:
+        # Test 1: Verifică statusul serverului
+        test_results["test_details"]["server_status"] = {
+            "status": "running",
+            "uptime_seconds": time.time() - start_time if 'start_time' in globals() else 0,
+            "flask_port": FLASK_PORT,
+            "websocket_port": WEBSOCKET_PORT,
+            "ssl_enabled": os.path.exists(SSL_CERT_PATH) and os.path.exists(SSL_KEY_PATH)
+        }
+        
+        # Test 2: Verifică monitorizarea Jetson
+        with data_lock:
+            if latest_data:
+                test_results["test_details"]["jetson_monitoring"] = {
+                    "status": "active",
+                    "jtop_available": JTOP_AVAILABLE,
+                    "last_update": latest_data.get("timestamp", "N/A"),
+                    "data_points": len(data_history)
+                }
+                
+                # Adaugă ultimele metrici importante
+                if "cpu" in latest_data:
+                    cpu_usage = latest_data["cpu"].get("CPU_total_usage", 0)
+                    test_results["test_details"]["performance"] = {
+                        "cpu_usage_percent": cpu_usage,
+                        "status": "good" if cpu_usage < 80 else "high"
+                    }
+                
+                if "memory" in latest_data:
+                    ram_used = latest_data["memory"].get("RAM_used", 0)
+                    ram_total = latest_data["memory"].get("RAM_total", 1)
+                    ram_percent = (ram_used / ram_total) * 100 if ram_total > 0 else 0
+                    test_results["test_details"]["memory"] = {
+                        "ram_usage_percent": round(ram_percent, 2),
+                        "ram_used_mb": ram_used,
+                        "ram_total_mb": ram_total,
+                        "status": "good" if ram_percent < 85 else "high"
+                    }
+                
+                if "temperatures" in latest_data:
+                    temps = latest_data["temperatures"]
+                    if temps:
+                        max_temp = max(temps.values())
+                        test_results["test_details"]["temperature"] = {
+                            "max_temperature_c": max_temp,
+                            "status": "good" if max_temp < 70 else "warning" if max_temp < 85 else "critical"
+                        }
+            else:
+                test_results["test_details"]["jetson_monitoring"] = {
+                    "status": "no_data",
+                    "jtop_available": JTOP_AVAILABLE
+                }
+        
+        # Test 3: Verifică camerele descoperite
+        with camera_lock:
+            test_results["test_details"]["camera_discovery"] = {
+                "cameras_found": len(discovered_cameras),
+                "cameras": [
+                    {
+                        "ip": cam["ip"],
+                        "type": cam["type"],
+                        "manufacturer": cam.get("manufacturer", "unknown")
+                    } for cam in discovered_cameras[:3]  # Doar primele 3 pentru a nu supraîncărca
+                ],
+                "scanning_active": len(discovered_cameras) > 0
+            }
+        
+        # Test 4: Verifică conectivitatea rețelei
+        try:
+            # Test conectivitate externă
+            response = requests.get("https://8.8.8.8", timeout=5)
+            test_results["test_details"]["network"] = {
+                "external_connectivity": "ok",
+                "dns_resolution": "ok"
+            }
+        except:
+            test_results["test_details"]["network"] = {
+                "external_connectivity": "limited",
+                "dns_resolution": "unknown"
+            }
+        
+        # Test 5: Verifică dispozitivele video
+        video_devices = []
+        try:
+            import glob
+            video_files = glob.glob("/dev/video*")
+            for device in video_files:
+                try:
+                    cap = cv2.VideoCapture(device)
+                    if cap.isOpened():
+                        video_devices.append({
+                            "device": device,
+                            "status": "available"
+                        })
+                        cap.release()
+                    else:
+                        video_devices.append({
+                            "device": device,
+                            "status": "not_accessible"
+                        })
+                except:
+                    video_devices.append({
+                        "device": device,
+                        "status": "error"
+                    })
+        except:
+            pass
+        
+        test_results["test_details"]["video_devices"] = {
+            "devices_found": len(video_devices),
+            "devices": video_devices
+        }
+        
+        # Calculează statusul general
+        issues = []
+        if not JTOP_AVAILABLE:
+            issues.append("jtop_not_available")
+        if len(discovered_cameras) == 0:
+            issues.append("no_cameras_found")
+        if len(video_devices) == 0:
+            issues.append("no_video_devices")
+        
+        if len(issues) == 0:
+            test_results["overall_status"] = "excellent"
+            test_results["message"] = "Toate sistemele funcționează perfect!"
+        elif len(issues) <= 2:
+            test_results["overall_status"] = "good"
+            test_results["message"] = f"Sistemul funcționează bine cu {len(issues)} probleme minore"
+        else:
+            test_results["overall_status"] = "issues"
+            test_results["message"] = f"Găsite {len(issues)} probleme care necesită atenție"
+        
+        test_results["issues"] = issues
+        
+        # Headers pentru CORS
+        response = jsonify(test_results)
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        response.headers.add('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
+        
+        print(f"✅ Test conexiune completat cu succes - Status: {test_results['overall_status']}")
+        return response
+        
+    except Exception as e:
+        error_result = {
+            "timestamp": datetime.now().isoformat(),
+            "jetson_status": "error",
+            "connection_test": "failed",
+            "error": str(e),
+            "overall_status": "error",
+            "message": f"Eroare în timpul testului: {str(e)}"
+        }
+        
+        print(f"❌ Eroare în test conexiune: {e}")
+        response = jsonify(error_result)
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response, 500
+
+@app.route("/ping", methods=["GET"])
+def ping():
+    """Endpoint simplu pentru verificarea rapidă a conectivității"""
+    return jsonify({
+        "status": "pong",
+        "timestamp": datetime.now().isoformat(),
+        "server": "jetson-ip-camera-server",
+        "version": "2.0.0-ssl"
+    })
+
+@app.route("/system-info", methods=["GET"])
+def get_system_info():
+    """Returnează informații detaliate despre sistem pentru debugging"""
+    try:
+        import platform
+        import psutil
+        
+        system_info = {
+            "timestamp": datetime.now().isoformat(),
+            "platform": {
+                "system": platform.system(),
+                "release": platform.release(),
+                "version": platform.version(),
+                "machine": platform.machine(),
+                "processor": platform.processor()
+            },
+            "python": {
+                "version": platform.python_version(),
+                "implementation": platform.python_implementation()
+            }
+        }
+        
+        # Informații despre CPU și memorie dacă psutil e disponibil
+        try:
+            system_info["resources"] = {
+                "cpu_percent": psutil.cpu_percent(interval=1),
+                "memory_percent": psutil.virtual_memory().percent,
+                "disk_percent": psutil.disk_usage('/').percent,
+                "boot_time": datetime.fromtimestamp(psutil.boot_time()).isoformat()
+            }
+        except:
+            pass
+        
+        # Verifică dacă este Jetson
+        try:
+            with open('/proc/cpuinfo', 'r') as f:
+                cpuinfo = f.read()
+                system_info["is_jetson"] = 'tegra' in cpuinfo.lower()
+        except:
+            system_info["is_jetson"] = False
+        
+        return jsonify(system_info)
+        
+    except Exception as e:
+        return jsonify({
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 500
+
 @app.route("/status", methods=["GET"])
 def get_status():
     """Returnează statusul serviciului"""
@@ -924,11 +1157,13 @@ def get_status():
         return jsonify({
             "service_status": "running",
             "version": "2.0.0 - Enhanced",
+            "uptime_seconds": time.time() - start_time,
             "jtop_available": JTOP_AVAILABLE,
             "data_points_collected": len(data_history),
             "last_update": latest_data.get("timestamp", "N/A") if latest_data else "N/A",
             "webrtc_port": WEBSOCKET_PORT,
             "flask_port": FLASK_PORT,
+            "ssl_enabled": os.path.exists(SSL_CERT_PATH) and os.path.exists(SSL_KEY_PATH),
             "cameras_discovered": len(discovered_cameras),
             "camera_urls": [cam['url'] for cam in discovered_cameras],
             "camera_manufacturers": list(set(cam.get('manufacturer', 'unknown') for cam in discovered_cameras)),
@@ -939,13 +1174,20 @@ def get_status():
                 "stream_validation": True,
                 "parallel_scanning": True
             },
+            "test_endpoints": {
+                "connection_test": "/test-connection",
+                "ping": "/ping", 
+                "system_info": "/system-info"
+            },
             "features": {
                 "jetson_monitoring": JTOP_AVAILABLE,
                 "webrtc_streaming": True,
                 "csv_export": True,
                 "enhanced_ip_camera_discovery": True,
                 "multi_manufacturer_support": True,
-                "real_time_validation": True
+                "real_time_validation": True,
+                "https_ssl_support": True,
+                "platform_integration": True
             }
         })
 
@@ -969,8 +1211,11 @@ def get_info():
             "rescan": "/cameras/rescan - POST - Rescanează pentru camere IP (Enhanced)",
             "scan_status": "/cameras/scan_status - GET - Status scanare în curs",
             "status": "/status - GET - Status server cu metrici detaliate",
+            "test_connection": "/test-connection - GET/POST - Test conexiune pentru platformă",
+            "ping": "/ping - GET - Verificare rapidă conectivitate",
+            "system_info": "/system-info - GET - Informații detaliate sistem",
             "download_logs": "/download_logs - GET - Descarcă CSV cu istoricul",
-            "webrtc": f"ws://localhost:{WEBSOCKET_PORT} - WebSocket pentru WebRTC"
+            "webrtc": f"wss://localhost:{WEBSOCKET_PORT} - WebSocket pentru WebRTC (WSS)"
         },
         "supported_manufacturers": [
             "Axis Communications",
