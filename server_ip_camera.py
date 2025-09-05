@@ -29,7 +29,7 @@ from datetime import datetime
 from threading import Thread, Lock
 
 # Flask imports
-from flask import Flask, jsonify, Response
+from flask import Flask, jsonify, Response, request
 from flask_cors import CORS
 
 # WebRTC imports
@@ -54,7 +54,7 @@ except ImportError:
 
 # Flask app
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins="*", methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type", "Authorization", "X-Requested-With"])
 
 # SSL Configuration
 SSL_CERT_PATH = "cert.pem"
@@ -290,6 +290,18 @@ def get_local_network():
     except Exception as e:
         print(f"❌ Eroare la obținerea rețelei locale: {e}")
         return None
+
+def get_local_ip():
+    """Obține IP-ul local al serverului"""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+        return local_ip
+    except Exception as e:
+        print(f"❌ Eroare la obținerea IP-ului local: {e}")
+        return "unknown"
 
 def ping_host(ip):
     """Verifică dacă un host este activ"""
@@ -920,16 +932,42 @@ def download_logs():
         except Exception as e:
             return Response(f"Eroare la generarea CSV: {str(e)}", status=500)
 
-@app.route("/test-connection", methods=["GET", "POST"])
+@app.route("/test-connection", methods=["GET", "POST", "OPTIONS"])
 def test_connection():
     """Endpoint pentru testarea conexiunii dintre platforma externă și Jetson"""
+    
+    # Handle preflight OPTIONS request for CORS
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With')
+        response.headers.add('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
+        response.headers.add('Access-Control-Max-Age', '86400')
+        return response
+    
     print("🧪 Test conexiune inițiat din platforma externă")
+    
+    # Get client info
+    client_ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.environ.get('REMOTE_ADDR', 'unknown'))
+    user_agent = request.environ.get('HTTP_USER_AGENT', 'unknown')
+    
+    print(f"📡 Client: {client_ip} - {user_agent}")
     
     # Colectează informații despre sistem
     test_results = {
         "timestamp": datetime.now().isoformat(),
         "jetson_status": "online",
         "connection_test": "success",
+        "client_info": {
+            "ip": client_ip,
+            "user_agent": user_agent,
+            "request_method": request.method
+        },
+        "server_info": {
+            "local_ip": get_local_ip(),
+            "public_access": True,
+            "ssl_enabled": os.path.exists(SSL_CERT_PATH) and os.path.exists(SSL_KEY_PATH)
+        },
         "test_details": {}
     }
     
@@ -1150,7 +1188,64 @@ def get_system_info():
             "timestamp": datetime.now().isoformat()
         }), 500
 
-@app.route("/status", methods=["GET"])
+@app.route("/network-info", methods=["GET"])
+def get_network_info():
+    """Returnează informații despre configurația rețelei pentru debugging conectivitate"""
+    try:
+        import subprocess
+        
+        network_info = {
+            "timestamp": datetime.now().isoformat(),
+            "local_ip": get_local_ip(),
+            "interfaces": {},
+            "connectivity": {}
+        }
+        
+        # Get all network interfaces
+        try:
+            result = subprocess.run(['ip', 'addr', 'show'], capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                network_info["interfaces_raw"] = result.stdout
+        except:
+            pass
+        
+        # Test external connectivity
+        try:
+            response = requests.get("https://8.8.8.8", timeout=5)
+            network_info["connectivity"]["google_dns"] = "ok"
+        except:
+            network_info["connectivity"]["google_dns"] = "failed"
+        
+        # Get public IP
+        try:
+            response = requests.get("https://ifconfig.me/ip", timeout=10)
+            if response.status_code == 200:
+                network_info["public_ip"] = response.text.strip()
+            else:
+                network_info["public_ip"] = "unknown"
+        except:
+            network_info["public_ip"] = "unknown"
+        
+        # Port check
+        network_info["ports"] = {
+            "flask_port": FLASK_PORT,
+            "websocket_port": WEBSOCKET_PORT,
+            "ssl_enabled": os.path.exists(SSL_CERT_PATH) and os.path.exists(SSL_KEY_PATH)
+        }
+        
+        # Add CORS headers
+        response = jsonify(network_info)
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response
+        
+    except Exception as e:
+        error_response = {
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
+        response = jsonify(error_response)
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response, 500
 def get_status():
     """Returnează statusul serviciului"""
     with data_lock, camera_lock:
@@ -1303,11 +1398,11 @@ def run_flask_server():
     """Rulează serverul Flask cu HTTPS în thread separat"""
     ssl_context = get_ssl_context()
     if ssl_context:
-        print(f"🌐 Starting Flask server on port {FLASK_PORT} (HTTPS)")
-        app.run(host="0.0.0.0", port=FLASK_PORT, debug=False, ssl_context=ssl_context)
+        print(f"🌐 Starting Flask server on https://0.0.0.0:{FLASK_PORT} (HTTPS - accessible from internet)")
+        app.run(host="0.0.0.0", port=FLASK_PORT, debug=False, ssl_context=ssl_context, threaded=True)
     else:
-        print(f"⚠️ SSL nu este disponibil, pornesc Flask cu HTTP pe portul {FLASK_PORT}")
-        app.run(host="0.0.0.0", port=FLASK_PORT, debug=False)
+        print(f"⚠️ SSL nu este disponibil, pornesc Flask cu HTTP pe http://0.0.0.0:{FLASK_PORT}")
+        app.run(host="0.0.0.0", port=FLASK_PORT, debug=False, threaded=True)
 
 async def run_websocket_server():
     """Rulează serverul WebSocket pentru WebRTC cu WSS"""

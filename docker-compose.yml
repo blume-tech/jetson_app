@@ -6,12 +6,13 @@ services:
     container_name: jetson-ip-camera-server
     restart: unless-stopped
     privileged: true
-    network_mode: host
+    # Use bridge network for better external access control
+    # network_mode: host
     
-    # Porturile (folosind network_mode: host)
-    # ports:
-    #   - "8080:8080"  # Flask API
-    #   - "8081:8081"  # WebRTC WebSocket
+    # Explicit port mapping for external access
+    ports:
+      - "8080:8080"  # Flask API HTTPS
+      - "8081:8081"  # WebRTC WSS
     
     # Dispozitive video - adaptează după sistemul tău
     devices:
