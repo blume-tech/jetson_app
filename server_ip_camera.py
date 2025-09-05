@@ -1310,6 +1310,10 @@ def get_info():
             "ping": "/ping - GET - Verificare rapidă conectivitate",
             "system_info": "/system-info - GET - Informații detaliate sistem",
             "download_logs": "/download_logs - GET - Descarcă CSV cu istoricul",
+            "camera1_coordinates": "/camera1/coordinates - POST - Salvează coordonate Camera 1",
+            "camera2_coordinates": "/camera2/coordinates - POST - Salvează coordonate Camera 2", 
+            "coordinates_history": "/coordinates/history - GET - Istoricul tuturor coordonatelor",
+            "coordinates_clear": "/coordinates/clear - POST/DELETE - Șterge coordonatele salvate",
             "webrtc": f"wss://localhost:{WEBSOCKET_PORT} - WebSocket pentru WebRTC (WSS)"
         },
         "supported_manufacturers": [
@@ -1320,6 +1324,254 @@ def get_info():
             "Generic ONVIF/MJPEG cameras"
         ]
     })
+
+# =============================================================================
+# ENDPOINTS PENTRU COORDONATE CAMERE
+# =============================================================================
+
+@app.route("/camera1/coordinates", methods=["POST", "OPTIONS"])
+def save_camera1_coordinates():
+    """Salvează coordonatele de la camera 1"""
+    if request.method == "OPTIONS":
+        return "", 200
+    
+    try:
+        data = request.get_json()
+        
+        if not data or 'coordinates' not in data:
+            return jsonify({
+                "success": False,
+                "error": "Coordonatele lipsesc din request"
+            }), 400
+        
+        coordinates = data['coordinates']
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Validează coordonatele - trebuie să fie 4 puncte: [[x1, y1], [x2, y2], [x3, y3], [x4, y4]]
+        if not isinstance(coordinates, list) or len(coordinates) != 4:
+            return jsonify({
+                "success": False,
+                "error": "Coordonatele trebuie să fie o listă cu 4 puncte [[x1, y1], [x2, y2], [x3, y3], [x4, y4]]"
+            }), 400
+        
+        # Validează fiecare punct
+        for i, point in enumerate(coordinates):
+            if not isinstance(point, list) or len(point) != 2:
+                return jsonify({
+                    "success": False,
+                    "error": f"Punctul {i+1} trebuie să fie [x, y]"
+                }), 400
+            
+            x, y = point
+            if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
+                return jsonify({
+                    "success": False,
+                    "error": f"Coordonatele punctului {i+1} trebuie să fie numere"
+                }), 400
+        
+        # Salvează în fișierul pentru camera 1
+        coordinates_file = "camera1_coordinates.txt"
+        
+        # Creează datele pentru salvare
+        coordinate_data = {
+            "timestamp": timestamp,
+            "camera": "Camera 1",
+            "coordinates": coordinates,  # Toate cele 4 puncte
+            "metadata": data.get('metadata', {})
+        }
+        
+        # Salvează în format JSON pe o linie
+        with open(coordinates_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(coordinate_data, ensure_ascii=False) + "\n")
+        
+        print(f"📍 Camera 1 - Coordonate salvate: {coordinates} la {timestamp}")
+        
+        return jsonify({
+            "success": True,
+            "message": f"Coordonate salvate pentru Camera 1",
+            "data": {
+                "camera": "Camera 1",
+                "coordinates": coordinates,  # Toate cele 4 puncte
+                "points_count": len(coordinates),
+                "timestamp": timestamp,
+                "file": coordinates_file
+            }
+        })
+        
+    except Exception as e:
+        print(f"❌ Eroare la salvarea coordonatelor Camera 1: {e}")
+        return jsonify({
+            "success": False,
+            "error": f"Eroare server: {str(e)}"
+        }), 500
+
+@app.route("/camera2/coordinates", methods=["POST", "OPTIONS"])
+def save_camera2_coordinates():
+    """Salvează coordonatele de la camera 2"""
+    if request.method == "OPTIONS":
+        return "", 200
+    
+    try:
+        data = request.get_json()
+        
+        if not data or 'coordinates' not in data:
+            return jsonify({
+                "success": False,
+                "error": "Coordonatele lipsesc din request"
+            }), 400
+        
+        coordinates = data['coordinates']
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Validează coordonatele - trebuie să fie 4 puncte: [[x1, y1], [x2, y2], [x3, y3], [x4, y4]]
+        if not isinstance(coordinates, list) or len(coordinates) != 4:
+            return jsonify({
+                "success": False,
+                "error": "Coordonatele trebuie să fie o listă cu 4 puncte [[x1, y1], [x2, y2], [x3, y3], [x4, y4]]"
+            }), 400
+        
+        # Validează fiecare punct
+        for i, point in enumerate(coordinates):
+            if not isinstance(point, list) or len(point) != 2:
+                return jsonify({
+                    "success": False,
+                    "error": f"Punctul {i+1} trebuie să fie [x, y]"
+                }), 400
+            
+            x, y = point
+            if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
+                return jsonify({
+                    "success": False,
+                    "error": f"Coordonatele punctului {i+1} trebuie să fie numere"
+                }), 400
+        
+        # Salvează în fișierul pentru camera 2
+        coordinates_file = "camera2_coordinates.txt"
+        
+        # Creează datele pentru salvare
+        coordinate_data = {
+            "timestamp": timestamp,
+            "camera": "Camera 2",
+            "coordinates": coordinates,  # Toate cele 4 puncte
+            "metadata": data.get('metadata', {})
+        }
+        
+        # Salvează în format JSON pe o linie
+        with open(coordinates_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(coordinate_data, ensure_ascii=False) + "\n")
+        
+        print(f"📍 Camera 2 - Coordonate salvate: {coordinates} la {timestamp}")
+        
+        return jsonify({
+            "success": True,
+            "message": f"Coordonate salvate pentru Camera 2",
+            "data": {
+                "camera": "Camera 2",
+                "coordinates": coordinates,  # Toate cele 4 puncte
+                "points_count": len(coordinates),
+                "timestamp": timestamp,
+                "file": coordinates_file
+            }
+        })
+        
+    except Exception as e:
+        print(f"❌ Eroare la salvarea coordonatelor Camera 2: {e}")
+        return jsonify({
+            "success": False,
+            "error": f"Eroare server: {str(e)}"
+        }), 500
+
+@app.route("/coordinates/history", methods=["GET"])
+def get_coordinates_history():
+    """Returnează istoricul coordonatelor de la ambele camere"""
+    try:
+        history = {
+            "camera1": [],
+            "camera2": []
+        }
+        
+        # Citește coordonatele Camera 1
+        camera1_file = "camera1_coordinates.txt"
+        if os.path.exists(camera1_file):
+            with open(camera1_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            coord_data = json.loads(line)
+                            history["camera1"].append(coord_data)
+                        except json.JSONDecodeError:
+                            continue
+        
+        # Citește coordonatele Camera 2
+        camera2_file = "camera2_coordinates.txt"
+        if os.path.exists(camera2_file):
+            with open(camera2_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            coord_data = json.loads(line)
+                            history["camera2"].append(coord_data)
+                        except json.JSONDecodeError:
+                            continue
+        
+        # Sortează pe timestamp (cele mai recente primul)
+        history["camera1"] = sorted(history["camera1"], 
+                                   key=lambda x: x["timestamp"], reverse=True)
+        history["camera2"] = sorted(history["camera2"], 
+                                   key=lambda x: x["timestamp"], reverse=True)
+        
+        return jsonify({
+            "success": True,
+            "data": history,
+            "stats": {
+                "camera1_total": len(history["camera1"]),
+                "camera2_total": len(history["camera2"]),
+                "total_coordinates": len(history["camera1"]) + len(history["camera2"])
+            }
+        })
+        
+    except Exception as e:
+        print(f"❌ Eroare la citirea istoricului coordonatelor: {e}")
+        return jsonify({
+            "success": False,
+            "error": f"Eroare server: {str(e)}"
+        }), 500
+
+@app.route("/coordinates/clear", methods=["POST", "DELETE"])
+def clear_coordinates():
+    """Șterge istoricul coordonatelor"""
+    try:
+        data = request.get_json() or {}
+        camera = data.get('camera', 'all')  # 'camera1', 'camera2', or 'all'
+        
+        files_cleared = []
+        
+        if camera in ['camera1', 'all']:
+            camera1_file = "camera1_coordinates.txt"
+            if os.path.exists(camera1_file):
+                os.remove(camera1_file)
+                files_cleared.append("camera1_coordinates.txt")
+        
+        if camera in ['camera2', 'all']:
+            camera2_file = "camera2_coordinates.txt"
+            if os.path.exists(camera2_file):
+                os.remove(camera2_file)
+                files_cleared.append("camera2_coordinates.txt")
+        
+        return jsonify({
+            "success": True,
+            "message": f"Coordonate șterse pentru {camera}",
+            "files_cleared": files_cleared
+        })
+        
+    except Exception as e:
+        print(f"❌ Eroare la ștergerea coordonatelor: {e}")
+        return jsonify({
+            "success": False,
+            "error": f"Eroare server: {str(e)}"
+        }), 500
 
 # =============================================================================
 # WEBRTC HANDLER
